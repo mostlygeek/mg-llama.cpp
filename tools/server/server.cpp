@@ -439,12 +439,19 @@ int llama_server(common_params & params, int argc, char ** argv) {
             return 1;
         }
 
-        // setup communication child --> router if necessary
-        if (child.is_child()) {
-            ctx_server.set_state_callback([&](server_state state, json payload) {
+        ctx_server.set_state_callback([&](server_state state, json payload) {
+            // communication child --> router if necessary
+            if (child.is_child()) {
                 child.notify_to_router(server_state_to_str(state), payload);
-            });
-        }
+            }
+            // expose the load progress on the 503 response, so clients can track it
+            if (state == SERVER_STATE_LOADING && payload.contains("value")) {
+                ctx_http.set_loading_progress(
+                    payload.at("current").get<std::string>(),
+                    payload.at("stages").get<std::vector<std::string>>(),
+                    payload.at("value").get<float>());
+            }
+        });
 
         if (!ctx_server.load_model(params)) {
             clean_up();

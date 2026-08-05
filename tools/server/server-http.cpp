@@ -9,6 +9,7 @@
 #include <functional>
 #include <future>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
 
@@ -19,6 +20,12 @@
 class server_http_context::Impl {
 public:
     std::unique_ptr<httplib::Server> srv;
+
+    // model load progress, negative value means no progress reported yet
+    std::mutex loading_mutex;
+    std::vector<std::string> loading_stages;
+    std::string loading_stage;
+    float loading_value = -1.0f;
 };
 
 server_http_context::server_http_context()
@@ -257,19 +264,27 @@ bool server_http_context::init(const common_params & params) {
             if (frontend_paths.count(req.path)) {
                 return true; // frontend asset, allow it to load and show "loading"
             }
+            json body {
+                {"error", {
+                    {"message", "Loading model"},
+                    {"type", "unavailable_error"},
+                    {"code", 503}
+                }}
+            };
+            {
+                std::lock_guard<std::mutex> lock(pimpl->loading_mutex);
+                if (pimpl->loading_value >= 0.0f) {
+                    body["progress"] = {
+                        {"stages",  pimpl->loading_stages},
+                        {"current", pimpl->loading_stage},
+                        {"value",   pimpl->loading_value},
+                    };
+                }
+            }
             // no endpoints are allowed to be accessed when the server is not ready
             // this is to prevent any data races or inconsistent states
             res.status = 503;
-            res.set_content(
-                safe_json_to_str(json {
-                    {"error", {
-                        {"message", "Loading model"},
-                        {"type", "unavailable_error"},
-                        {"code", 503}
-                    }}
-                }),
-                "application/json; charset=utf-8"
-            );
+            res.set_content(safe_json_to_str(body), "application/json; charset=utf-8");
             return false;
         }
         return true;
@@ -656,6 +671,13 @@ void server_http_context::del(const std::string & path, const server_http_contex
         server_http_res_ptr response = handler(*request);
         process_handler_response(std::move(request), response, res);
     });
+}
+
+void server_http_context::set_loading_progress(const std::string & stage, const std::vector<std::string> & stages, float value) const {
+    std::lock_guard<std::mutex> lock(pimpl->loading_mutex);
+    pimpl->loading_stages = stages;
+    pimpl->loading_stage  = stage;
+    pimpl->loading_value  = value;
 }
 
 //

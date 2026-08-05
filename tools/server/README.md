@@ -412,6 +412,7 @@ This endpoint is public (no API key check). `/v1/health` also works.
 - HTTP status code 503
   - Body: `{"error": {"code": 503, "message": "Loading model", "type": "unavailable_error"}}`
   - Explanation: the model is still being loaded.
+  - Once the loader reports progress, a `progress` object is added: `{"stages": ["text_model"], "current": "text_model", "value": 0.42}`, where `value` is the fraction (0.0 -> 1.0) of the `current` stage. The same object is added to every 503 response, for example on `GET /props`.
 - HTTP status code 200
   - Body: `{"status": "ok" }`
   - Explanation: the model is successfully loaded and the server is ready.

@@ -91,6 +91,10 @@ struct server_http_context {
     void post(const std::string & path, const handler_t & handler) const;
     void del(const std::string & path, const handler_t & handler) const;
 
+    // report model load progress on the 503 response returned while the model is loading
+    // thread-safe: called from the loading thread, read by the HTTP workers
+    void set_loading_progress(const std::string & stage, const std::vector<std::string> & stages, float value) const;
+
     // Register the Google Cloud Platform (Vertex AI) compat (AIP_PREDICT_ROUTE env var, or /predict)
     // Must be called AFTER all other API routes are registered
     void register_gcp_compat() const;
