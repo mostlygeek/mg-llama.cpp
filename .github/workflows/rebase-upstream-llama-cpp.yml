@@ -1,0 +1,65 @@
+name: rebase-upstream-llama-cpp
+
+on:
+  schedule:
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rebase-upstream-llama-cpp
+  cancel-in-progress: false
+
+jobs:
+  rebase:
+    if: github.repository == 'mostlygeek/mg-llama.cpp'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check rebase credentials
+        env:
+          REBASE_TOKEN: ${{ secrets.REBASE_TOKEN }}
+        run: |
+          if [ -z "$REBASE_TOKEN" ]; then
+            echo '::error::Add a REBASE_TOKEN repository secret with Contents and Workflows write access.'
+            exit 1
+          fi
+
+      - name: Checkout fork branch
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: master
+          fetch-depth: 0
+          token: ${{ secrets.REBASE_TOKEN }}
+
+      - name: Rebase onto upstream master
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git remote add upstream https://github.com/ggml-org/llama.cpp.git
+          git fetch --no-tags upstream +refs/heads/master:refs/remotes/upstream/master
+          previous_head=$(git rev-parse HEAD)
+
+          # our README replaces the upstream one, so a README-only conflict is always resolved with ours
+          if ! git rebase upstream/master; then
+            while :; do
+              unmerged=$(git diff --name-only --diff-filter=U)
+              if [ "$unmerged" != 'README.md' ]; then
+                git rebase --abort
+                echo "::error::Rebase failed (conflicts: ${unmerged:-none}). Resolve locally and update master."
+                exit 1
+              fi
+              git checkout --theirs -- README.md
+              git add README.md
+              if git -c core.editor=true rebase --continue; then
+                break
+              fi
+            done
+          fi
+
+          git push --force-with-lease="refs/heads/master:$previous_head" origin HEAD:refs/heads/master

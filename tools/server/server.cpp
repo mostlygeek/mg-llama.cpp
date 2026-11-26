@@ -728,6 +728,29 @@ static int server_run_instance(common_params & params, server_role & role, commo
 
     // setup communication child --> router, or to the SSE clients
     ctx_server.set_state_callback([&](server_state state, json payload) {
+        // report loading progress via /health
+        if (state == SERVER_STATE_LOADING && payload.contains("current") && payload.contains("value")) {
+            const auto & stages  = payload.at("stages");
+            const auto   current = payload.at("current").get<std::string>();
+            const float  value   = payload.at("value").get<float>();
+            size_t idx = 0;
+            for (size_t i = 0; i < stages.size(); i++) {
+                if (stages[i] == current) {
+                    idx = i;
+                    break;
+                }
+            }
+            const size_t n = std::max<size_t>(stages.size(), 1);
+            std::string msg =
+                current == "text_model"   ? "Loading model" :
+                current == "spec_model"   ? "Loading draft model" :
+                current == "mmproj_model" ? "Loading vision projector" :
+                "Loading " + current;
+            if (n > 1) {
+                msg += " (" + std::to_string(idx + 1) + "/" + std::to_string(n) + ")";
+            }
+            ctx_http.set_load_progress((idx + value) / n, msg);
+        }
         if (managed) {
             role.notify_to_router(server_state_to_str(state), payload);
             return;
